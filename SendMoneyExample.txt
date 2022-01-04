@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: GPL-3.0
+
+pragma solidity ^0.8.1;
+
+contract SendMoneyExample {
+
+    uint public balanceReceived;
+
+    function receiveMoney() public payable {
+        balanceReceived += msg.value;
+    }
+
+    function getBalance() public view returns(uint) {
+        return address(this).balance;
+    }
+}
+
+A lot of new stuff in here. Don't worry, in a bit all of those things will be very familiar to you. I keep explaining them as we go along, but if you're interested right away then let's go through this one line at a time:
+
+uint public balanceReceived: is a public storage variable. A public variable will create a getter function automatically in Solidity. So we can always query the current content of this variable.
+
+balanceReceived += msg.value: The msg-object is a global always-existing object containing a few informations about the ongoing transaction. The two most important properties are .value and .sender. Former contains the amount of Wei that was sent to the smart contract. Latter contains the address that called the Smart Contract. We will use this extensively later on, so, just keep going for now.
+
+function getBalance() public view returns(uint): a view function is a function that doesn't alter the storage (read-only) and can return information. It doesn't need to be mined and it is virtually free of charge.
+
+address(this).balance: A variable of the type address always has a property called .balance which gives you the amount of ether stored on that address. It doesn't mean you can access them, it just tells you how much is stored there. Remember, it's all public information. address(this) converts the Smart Contract instance to an address. So, this line essentially returns the amount of Ether that are stored on the Smart Contract itself.
