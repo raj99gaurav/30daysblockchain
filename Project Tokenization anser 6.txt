@@ -1,0 +1,105 @@
+The KYC Smart Contract¶
+First, we're going to add a KYC Smart Contract which handles the white-listing. In contracts/KycContract.sol add the following content.
+
+
+contracts/KycContract.sol
+pragma solidity ^0.6.0;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract KycContract is Ownable {
+    mapping(address => bool) allowed;
+
+    function setKycCompleted(address _addr) public onlyOwner {
+        allowed[_addr] = true;
+    }
+
+    function setKycRevoked(address _addr) public onlyOwner {
+        allowed[_addr] = false;
+    }
+
+    function kycCompleted(address _addr) public view returns(bool) {
+        return allowed[_addr];
+    }
+}
+And in our TokenSale.sol we have to check -- before the actual sale -- if the user is whitelisted. Change the contracts/MyTokenSale.sol to:
+
+
+contracts/MyTokenSale.sol
+pragma solidity ^0.6.0;
+
+import "./Crowdsale.sol";
+import "./KycContract.sol";
+
+contract MyTokenSale is Crowdsale {
+
+    KycContract kyc;
+    constructor(
+        uint256 rate,    // rate in TKNbits
+        address payable wallet,
+        IERC20 token,
+        KycContract _kyc
+    )
+        Crowdsale(rate, wallet, token)
+        public
+    {
+        kyc = _kyc;
+    }
+
+    function _preValidatePurchase(address beneficiary, uint256 weiAmount) internal view override {
+        super._preValidatePurchase(beneficiary, weiAmount);
+        require(kyc.kycCompleted(beneficiary), "KYC not completed yet, aborting");
+    }
+
+}
+And now we also have to change the migration obviously, or else it won't work:
+
+
+migrations/02_deploy_contracts.js
+var MyToken = artifacts.require("./MyToken.sol");
+var MyTokenSales = artifacts.require("./MyTokenSale.sol");
+var KycContract = artifacts.require("./KycContract.sol");
+require('dotenv').config({path: '../.env'});
+
+module.exports = async function(deployer) {
+    let addr = await web3.eth.getAccounts();
+    await deployer.deploy(MyToken, process.env.INITIAL_TOKENS);
+    await deployer.deploy(KycContract);
+    await deployer.deploy(MyTokenSales, 1, addr[0], MyToken.address, KycContract.address);
+    let tokenInstance = await MyToken.deployed();
+    await tokenInstance.transfer(MyTokenSales.address,  process.env.INITIAL_TOKENS);
+
+};
+Now let's change also the Unit-Tests to reflect this:
+
+
+tests/MyTokenSale.test.js
+const Token = artifacts.require("MyToken");
+const TokenSale = artifacts.require("MyTokenSale");
+const KycContract = artifacts.require("KycContract");
+
+const chai = require("./chaisetup.js");
+const BN = web3.utils.BN;
+const expect = chai.expect;
+
+contract("TokenSale", async function(accounts) {
+    const [ initialHolder, recipient, anotherAccount ] = accounts;
+
+//the rest of the code here
+
+it("should be possible to buy one token by simply sending ether to the smart contract", async () => {
+    let tokenInstance = await Token.deployed();
+    let tokenSaleInstance = await TokenSale.deployed();
+    let balanceBeforeAccount = await tokenInstance.balanceOf.call(recipient);
+    await expect(tokenSaleInstance.sendTransaction({from: recipient, value: web3.utils.toWei("1", "wei")})).to.be.rejected;
+    await expect(balanceBeforeAccount).to.be.bignumber.equal(await tokenInstance.balanceOf.call(recipient));
+
+    let kycInstance = await KycContract.deployed();
+    await kycInstance.setKycCompleted(recipient);
+    await expect(tokenSaleInstance.sendTransaction({from: recipient, value: web3.utils.toWei("1", "wei")})).to.be.fulfilled;
+    return expect(balanceBeforeAccount + 1).to.be.bignumber.equal(await tokenInstance.balanceOf.call(recipient));
+
+});
+
+
+});
